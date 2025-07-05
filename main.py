@@ -1,33 +1,20 @@
-from fastapi import FastAPI, UploadFile, File
-from torchvision import models, transforms
-import torch
-from PIL import Image
-import io
+from fastapi import FastAPI
+from pydantic import BaseModel
+import numpy as np
+from tensorflow.keras.models import load_model
 
 app = FastAPI()
+model = load_model("model.h5")
 
-# Load pretrained model
-model = models.resnet18(pretrained=True)
-model.eval()
+class DigitInput(BaseModel):
+    pixels: list  # 28x28 flattened = 784 values
 
-# Preprocessing pipeline
-preprocess = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225]),
-])
-
-# Load labels
-LABELS_URL = "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
-imagenet_classes = requests.get(LABELS_URL).text.splitlines()
+@app.get("/")
+def welcome():
+    return {"message": "Digit classifier is up!"}
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
-    image = Image.open(io.BytesIO(await file.read())).convert("RGB")
-    input_tensor = preprocess(image).unsqueeze(0)  # Add batch dimension
-    with torch.no_grad():
-        output = model(input_tensor)
-        _, predicted_idx = torch.max(output, 1)
-    return {"class": imagenet_classes[predicted_idx.item()]}
+def predict(data: DigitInput):
+    x = np.array(data.pixels).reshape(1, 28, 28) / 255.0
+    prediction = model.predict(x)
+    return {"digit": int(np.argmax(prediction))}
